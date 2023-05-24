@@ -1,0 +1,174 @@
+---
+title: "Tarea Minería de Datos - Análisis y Predicción de Series Temporales" 
+author: "Gerard Chicot Navalls"
+date: "28/7/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+```{r}
+library(readxl)
+library(ggplot2)
+library(knitr)
+library(forecast)
+library(zoo)
+```
+
+1. Introducción: Presentación de la serie a analizar.
+
+```{r}
+datos <- read_xlsx("Interurbano ferrocarril.xlsx")
+datos
+```
+
+2. Representación gráfica y descomposición estacional (si tuviera comportamiento
+estacional)
+
+```{r}
+ferrocarril <- ts(datos[,-1], start= c(2005,1), frequency=12)
+ferrocarril_INT <- ts(datos[,2], start= c(2005,1), frequency=12)
+ferrocarril_CERC <- ts(datos[,3], start= c(2005,1), frequency=12)
+
+autoplot(ferrocarril) + ggtitle("Numero de viajeros transportados") + xlab("año")+ ylab("Número de viajeros transportados")
+```
+
+La serie es estacionaria, vemos como la media es constante.
+ 
+Vemos como hay una pequeña tendencia decreciente hasta el año 2010 y luego 
+empieza a crecer poco a poco. 
+
+Si que tiene un comportamiento estacional cada 12 meses. 
+
+
+```{r}
+autoplot(ferrocarril_CERC)
+
+ferrocarril_CERC_COMP <- decompose((ferrocarril_CERC), type=c("multiplicative"))
+
+autoplot(ferrocarril_CERC_COMP, ts.colour = "blue")
+
+knitr::kable(ferrocarril_CERC_COMP$figure, digits =2,caption = "Coef Estacionalidad")
+
+autoplot(ferrocarril_CERC, series="Datos") +
+  autolayer(trendcycle(ferrocarril_CERC_COMP), series="Tendencia") +
+  autolayer(seasadj(ferrocarril_CERC_COMP), series="Estacionalmente ajustada") + 
+   xlab("Año") + ylab("Número") +
+  ggtitle("Viajeros Ferrocarril Interurbano") +
+  scale_colour_manual(values=c("gray","blue","red"),
+                    
+  breaks=c("Datos","Estacionalmente ajustada","Tendencia"))
+
+ggseasonplot(ferrocarril_CERC, year.labels=TRUE, year.labels.left=TRUE) + xlab("Mes")+
+ylab("Número") + ggtitle("Viajeros Ferrocarril Interurbano")
+```
+
+Podemos observar los coeficientes de estacionalidad donde el valor más grande corresponde
+al Marzo con un 1.13. Esto significa que hay un 13% más de viajeros en el ferrocarril 
+de Cercanias que en la media del año. El coeficiente menor es en Mayo con un valor de 0.72,
+esto significa que en ese mes hay un 28% menos de viajeros que en la media del año.
+
+Como podemos ver en la representación gráfica de los valores de la serie, todos los 
+años tienen la misma estructura y se ve también que va aumentando el número de turistas cada año.
+
+
+3. Para comprobar la eficacia de los métodos de predicción que vamos a hacer en los
+siguientes apartados reservamos los últimos datos observados (un periodo en las
+series estacionales o aproximadamente 10 observaciones) para comparar con las
+predicciones realizadas por cada uno de los métodos. Luego ajustamos los modelos
+sobre la serie sin esos últimos datos en los siguientes apartados
+
+```{r}
+ferrocarril_train <- window(ferrocarril_CERC, end=c(2015,12))
+```
+
+4. Encontrar el modelo de suavizado exponencial más adecuado, mostrando una tabla
+con los estimadores de los parámetros del modelo elegido. Para dicho modelo,
+representar gráficamente la serie observada y la suavizada con las predicciones para
+un periodo que se considere adecuado. Mostrar una tabla con las predicciones
+
+```{r}
+fit_ferrocarril_CERC <- hw(ferrocarril_train, h=12, seasonal="multiplicative", level = c(80,95))
+
+autoplot(fit_ferrocarril_CERC)
+
+knitr::kable(fit_ferrocarril_CERC, digits =4,caption = "Predicciones ")
+
+fit_ferrocarril_CERC[["model"]]
+```
+
+5. Representar la serie y los correlogramas. Decidir que modelo puede ser ajustado.
+Ajustar el modelo adecuado comprobando que sus residuales están incorrelados.
+(Sintaxis, tablas de los parámetros estimados y gráficos)
+
+```{r}
+ggAcf(ferrocarril_train, lag=48)
+
+ggPacf(ferrocarril_train, lag=48)
+
+autoplot(diff(ferrocarril_train,12))+ ggtitle("Viajeros ferrocarril") + xlab("Año") +
+ylab("Número")
+
+ggAcf(diff(ferrocarril_train), lag=48)
+
+ggPacf(diff(ferrocarril_train), lag=48)
+
+autoplot(diff(diff(ferrocarril_train),12))+ ggtitle("Viajeros ferrocarril") + xlab("Año") + ylab("Número")
+
+ggAcf(diff(diff(ferrocarril_train),14), lag=48)
+
+ggPacf(diff(diff(ferrocarril_train),14), lag=48)
+```
+```{r}
+fitferrocarril1 <- Arima((ferrocarril_train),c(1,0,1),seasonal=c(0,1,1))
+checkresiduals(fitferrocarril1)
+
+fitferrocarril2 <- auto.arima(ferrocarril_train)
+checkresiduals(fitferrocarril2)
+
+fitferrocarril3 <- auto.arima(log(ferrocarril_train))
+checkresiduals(fitferrocarril3)
+
+knitr::kable(accuracy(fitferrocarril3), digits = 4, caption = "Medias de ajuste")
+```
+
+Vemos como todos los modelos están incorrelados y finalmente me he decidido por 
+el modelo número 3. Es decir, explica que toda la dependencia que hay en el modelo 
+gracias a que el p-value es mayor a 0.05.
+
+6. Escribir la expresión algebraica del modelo ajustado con los parámetros estimados.
+
+```{r}
+fitferrocarril3
+
+
+```
+
+7. Calcular las predicciones y los intervalos de confianza para las unidades de tiempo
+que se considere oportuno, dependiendo de la serie, siguientes al último valor
+observado. Representarlas gráficamente.
+
+```{r}
+predi3 <- forecast(fitferrocarril3,h=12)
+
+autoplot(predi3)
+```
+
+8. Comparar las predicciones obtenidas con cada uno de los métodos (suavizado y
+ARIMA) con los valores observados que habíamos reservado antes. Conclusiones.
+
+```{r}
+autoplot(ferrocarril_CERC) +
+  autolayer(forecast(fit_ferrocarril_CERC,h=12), series="suabizado", PI=FALSE) +
+  autolayer(forecast(fitferrocarril1,h=12), series="manual", PI=FALSE) +
+  autolayer(forecast(fitferrocarril2,h=12), series="automatico", PI=FALSE)+
+  autolayer(exp(predi3$mean), series="Logaritmico")+
+  ggtitle("Prediciones por diferentes modelos ") + xlab("Año") + ylab("Número") +
+  guides(colour=guide_legend(title="Forecast"))
+```
+
+
+
+
